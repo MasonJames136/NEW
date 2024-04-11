@@ -1,0 +1,836 @@
+--[[VARIABLES]]--
+local MPS = game:GetService("MarketplaceService")
+local TS = game:GetService("TweenService")
+local DS = game:GetService("Debris")
+local UIS = game:GetService("UserInputService")
+
+local placeObjectEvent = script.Parent.PlaceObject
+local demolishObjectEvent = script.Parent.DemolishObject
+local cloneObjectEvent = script.Parent.CloneObject
+local startBuildEvent = script.Parent.StartBuildEvent
+local eyedropperEvent = script.Parent.Eyedropper
+local paintEvent = script.Parent.Paint
+local colorEvent = script.Parent.Parent.ColorMaterialFrame.ColorFrame.ColorEvent
+local materialEvent = script.Parent.Parent.ColorMaterialFrame.MaterialFrame.MaterialEvent
+
+local plr = game.Players.LocalPlayer
+local char = plr.Character
+local mouse = plr:GetMouse()
+local camera = game.Workspace.CurrentCamera
+
+local baseplate = game.Workspace.World:WaitForChild(plr.Name.."'s_Baseplate")
+
+local buildables = game.ReplicatedStorage.Buildables
+
+local placeEffect = script.PlaceEffect
+
+local tips = script.Parent.Parent.BuildingTips
+local buildFrame = script.Parent.Parent.BuildFrame
+local openArrow = buildFrame.OpenArrow
+
+local slideSound = game.ReplicatedStorage.Sounds.SFX.UI.Slide
+local errorSound = game.ReplicatedStorage.Sounds.SFX.Building.Error
+local demolishSound = game.ReplicatedStorage.Sounds.SFX.Building.Demolish
+local pop1Sound = game.ReplicatedStorage.Sounds.SFX.UI.Pop1
+local paintSound
+
+local currentPart = script.Parent.CurrentPart
+local prevPart = script.Parent.PreviousPart
+local buildBuffer = script.BuildBuffer
+local gridSize = script.Parent.GridSize
+
+local ogFramePos = buildFrame.Position
+
+local GRID_SIZE = 1
+
+local rotation = Vector3.new(0,0,0)
+
+local placing = false
+local placeAble = false
+
+local projectionCFrame = nil
+
+local projection = nil
+local selectionBox = script.SelectionBox
+
+local controller = false
+
+local steady = false
+
+--[[FUNCTIONS]]--
+function place()
+	
+	if buildables:FindFirstChild(currentPart.Value) then
+
+		if not buildBuffer.Value then
+
+			local x = 0
+
+			for i,_ in pairs (baseplate.Parts:GetChildren()) do
+				x = i
+			end
+
+			if mouse.Target then
+
+				local result = baseplate.CFrame.Position - projectionCFrame.Position
+
+				if placeAble then
+
+					local object = game.ReplicatedStorage.Buildables[currentPart.Value]
+					
+					local transparency = game.ReplicatedStorage.Buildables:FindFirstChild(object.Name):FindFirstChild("Part")
+					
+					local size = object.PrimaryPart.Size
+					
+					if transparency then
+						transparency = transparency.Transparency
+					else
+						transparency = 0
+					end
+					
+					local color = object.PrimaryPart.Color
+					local material = object.PrimaryPart.Material
+					
+					if script.Parent.TempMaterial.Value ~= "" then
+						color = script.Parent.TempColor.Value
+						material = string.gsub(script.Parent.TempMaterial.Value, "Enum.Material.", "")
+						
+						if script.Parent.TempSize.Value ~= Vector3.new(0,0,0) then
+							size = script.Parent.TempSize.Value
+						end
+						
+						transparency = script.Parent.TempTransparency.Value
+					end
+					
+					placeObjectEvent:FireServer(projectionCFrame, currentPart.Value, rotation, color, material, transparency)
+					
+					-- Place effect
+					local clone = placeEffect:Clone()
+					
+					DS:AddItem(clone,5)
+					
+					clone.Parent = game.Workspace
+					clone.Position = projectionCFrame.Position
+					
+					clone.Emitter.Enabled = true
+					
+					local x = math.random(1,2)
+
+					game.ReplicatedStorage.Sounds.SFX.Building["Build"..x]:Play()
+					
+					task.wait(0.1)
+					clone.Emitter.Enabled = false
+
+				else
+
+					errorSound:Play()
+
+					if baseplate.Loading.Value == true then
+						mouseErrorText("Wait for the current task to finish to continue placing objects.", Color3.new(1, 0.219608, 0.219608), Color3.new(0, 0, 0))
+					else
+						mouseErrorText("You cannot place an object there.", Color3.new(1, 0.219608, 0.219608), Color3.new(0, 0, 0))
+					end
+
+				end
+
+			end
+
+			buildBuffer.Value = true
+
+		end
+
+		--Demolish object
+
+	elseif currentPart.Value == "demolish" then
+
+		local function demolish()
+			demolishSound:Play()
+			demolishObjectEvent:FireServer(mouse.Target.Parent)
+		end
+
+		if mouse.Target then
+
+			if mouse.Target.Parent.Parent.Parent == baseplate then
+				demolish()
+			end
+
+		end
+
+		--Clone Object
+	elseif currentPart.Value == "clone" then
+
+		if mouse.Target then
+
+			if mouse.Target.Parent.Parent.Parent == baseplate then
+				currentPart.Value = mouse.Target.Parent.Name
+				cloneObjectEvent:FireServer(mouse.Target.Parent)
+				pop1Sound:Play()
+			end
+
+		end
+
+	elseif currentPart.Value == "eyedropper" then
+
+		if mouse.Target then
+
+			local target = mouse.Target
+			local material = string.gsub(tostring(target.Parent.PrimaryPart.Material),"Enum.Material.","")
+
+			if mouse.Target.Parent.Parent.Parent == baseplate then
+				colorEvent:FireServer(target.Parent.PrimaryPart.Color)
+				materialEvent:FireServer(material)
+				pop1Sound:Play()
+			end
+
+		end
+
+	elseif currentPart.Value == "paint" then
+
+		if mouse.Target then
+			
+			local obj = mouse.Target.Parent
+			
+			local material = script.Parent.Parent.ColorMaterialFrame.CurrentMaterial.Text
+			local color = script.Parent.Parent.ColorMaterialFrame.CurrentColor.BackgroundColor3
+			local transparency = tonumber(script.Parent.Parent.ColorMaterialFrame.TransparencyFrame:FindFirstChild("Transparency").Text)
+
+			material =  Enum.Material[string.gsub(material, " ", "")]
+
+			if obj.Parent.Parent == baseplate then
+				
+				local ogTrans = obj:FindFirstChild("Part")
+				
+				if ogTrans then
+					ogTrans = ogTrans.Transparency
+				else
+					ogTrans = 0
+				end
+				
+				if transparency then
+					transparency = math.clamp(transparency, 0, 0.9)
+				else
+					transparency = 0
+				end
+				
+				if obj.PrimaryPart.Material ~= material or obj.PrimaryPart.Color ~= color or ogTrans ~= transparency then
+					paintEvent:FireServer(mouse.Target.Parent, color, material, transparency)
+					pop1Sound:Play()
+				end
+				
+			end
+
+		end
+
+	elseif currentPart.Value == "resize" then
+
+		if mouse.Target then
+
+			local target = mouse.Target
+			local obj = target.Parent
+
+			local resizingObject = buildFrame.ResizingObject
+
+			if resizingObject.Value ~= obj then
+
+				if string.match(obj.Name,"2x2x2") or string.match(obj.Name,"4x4x4 Stairs") then
+
+					if target.Parent.Parent.Parent == baseplate then
+						resizingObject.Value = target.Parent
+						pop1Sound:Play()
+					end
+
+				end
+
+			end
+
+		end
+
+	elseif currentPart.Value == "move" then
+
+		if mouse.Target then
+
+			local target = mouse.Target
+
+			local moveObject = buildFrame.MoveObject
+
+			if moveObject.Value ~= target.Parent then
+
+				if target.Parent.Parent.Parent == baseplate then
+					moveObject.Value = target.Parent
+					pop1Sound:Play()
+				end
+
+			end
+
+		end
+
+	elseif currentPart.Value == "config" then
+
+		if mouse.Target then
+
+			local target = mouse.Target
+			local obj = target.Parent
+
+			local configObject = buildFrame.ConfigObject
+
+			if configObject.Value ~= obj then
+
+				if target.Parent.Parent.Parent == baseplate then
+					configObject.Value = target.Parent
+					pop1Sound:Play()
+				end
+
+			end
+
+		end
+
+	end
+
+end
+
+function setPivot(x,y,z,rotX,rotY,rotZ)
+	projection:SetPrimaryPartCFrame(CFrame.new(Vector3.new(x,y,z)) * CFrame.Angles(rotX,rotY,rotZ)) --Rotation
+end
+
+function mouseErrorText(text, color, strokeColor)
+
+	local mouseText = plr.PlayerScripts.LocalEventHandler.MouseText:Clone()
+
+	mouseText.Text = text
+	mouseText.TextColor3 = color
+	mouseText.UIStroke.Color = strokeColor
+
+	mouseText.Position = UDim2.new(0, mouse.X, 0, mouse.Y)
+	mouseText.Parent = plr.PlayerGui.GameUI
+
+	TS:Create(mouseText, TweenInfo.new(4,Enum.EasingStyle.Linear), {Position = mouseText.Position + UDim2.new(0, 0, 0, -250)}):Play()
+	TS:Create(mouseText, TweenInfo.new(4,Enum.EasingStyle.Linear), {TextTransparency = 1}):Play()
+	TS:Create(mouseText.UIStroke, TweenInfo.new(4,Enum.EasingStyle.Linear), {Transparency = 1}):Play()
+
+	DS:AddItem(mouseText,5)
+
+end
+
+--[[MAIN SCRIPT]]--
+UIS.GamepadConnected:Connect(function(gamepad)
+	controller = true
+end)
+
+currentPart.Changed:Connect(function()
+
+	placing = true
+	
+	--Sets temp color/material back to original
+	if script.Parent.TempMaterial.Value ~= "" then
+		cloneObjectEvent:FireServer("cancel")
+	end
+	
+	-- Reset values
+	script.Parent.ResizingObject.Value = nil
+	script.Parent.MoveObject.Value = nil
+	script.Parent.ConfigObject.Value = nil
+
+	rotation = Vector3.new(0,0,0)
+
+	if projection then
+		projection:Destroy()
+	end
+
+	if baseplate:FindFirstChild("Projection") ~= nil then
+		baseplate.Projection:Destroy()
+	end
+
+	--Gamepass
+	local partLimit
+
+	if MPS:UserOwnsGamePassAsync(plr.UserId, 714408148) then
+		partLimit = game.Workspace.GlobalValues["2xPartLimit"].Value
+	else
+		partLimit = game.Workspace.GlobalValues.DefaultPartLimit.Value
+	end
+
+	if buildables:FindFirstChild(currentPart.Value) then
+
+		startBuildEvent:FireServer()
+
+		tips.Visible = true
+
+		tips.CurrentPart.Text = "Currently placing "..currentPart.Value.."."
+		tips.Mode.Text = "BUILD TOOL"
+		tips.Rotate.Text = "Press R to Rotate. [IF ABLE]"
+		tips.Tilt.Text = "Press T to Tilt. [IF ABLE]"
+		tips.Mode.TextColor3 = Color3.new(0.333333, 0.666667, 1)
+
+		--Projection initialization
+		projection = buildables[currentPart.Value]:Clone()
+		projection.Name = "PlacingProjection"
+		projection.Parent = game.Workspace.World[plr.Name.."'s_Baseplate"]
+
+		local selectionBoxClone = selectionBox:Clone()
+		selectionBoxClone.Parent = projection
+		selectionBox.Adornee = projection
+
+		projection.BoundingBox.CanCollide = false
+
+		mouse.TargetFilter = projection
+
+		--Projection
+		while wait() do
+
+			local GRID_SIZE = gridSize.Value
+
+			local primary = projection.PrimaryPart
+			local target = mouse.Target
+			local hit = mouse.Hit
+			local parts = 0
+
+			for i,_ in pairs (baseplate.Parts:GetChildren()) do
+				parts = i
+			end
+
+			--On baseplate / local parts / < maximum parts / not loading
+			if target then
+
+				if projection.PrimaryPart then
+
+					local result = baseplate.CFrame.Position - projection.PrimaryPart.CFrame.Position
+
+					if result.X <= baseplate.Size.X/2 and result.X >= -baseplate.Size.X/2 and result.Y <= -1
+						and result.Y >= -game.Workspace.GlobalValues.DefaultHeightLimit.Value and
+						result.Z <= baseplate.Size.Z/2 and result.Z >= -baseplate.Size.Z/2 and
+						parts < partLimit and #projection.BoundingBox:GetTouchingParts() == 0 and baseplate.Loading.Value == false then
+
+						for _,part in pairs (projection:GetChildren()) do
+
+							if part.ClassName == "UnionOperation" or part.ClassName == "Part" or part.ClassName == "Seat" then
+
+								if part.Name ~= "BoundingBox" and part.Name ~= "Direction" then
+									part.Transparency = 0.6
+									part.BrickColor = BrickColor.new("Bright green")
+									placeAble = true
+								end
+
+							end
+
+						end
+
+						--Not on baseplate / local parts / >= max parts / loading
+					else
+
+						for _,part in pairs (projection:GetChildren()) do
+
+							if part.ClassName == "UnionOperation" or part.ClassName == "Part" or part.ClassName == "Seat" then
+
+								if part.Name ~= "BoundingBox" and part.Name ~= "Direction" then
+									part.Transparency = 0.6
+									part.BrickColor = BrickColor.new("Bright red")
+									placeAble = false
+								end
+
+							end
+
+						end
+
+					end
+
+				end
+
+			end
+
+			--Movement of projection
+			local adjustX, adjustY, adjustZ = 0, 0, 0
+
+			local normalRot
+
+			if target and primary then
+
+				normalRot = target.Rotation - primary.Rotation
+
+				local cubeBoundary = false
+
+				if primary.Size.X == primary.Size.Y and primary.Size.Y == primary.Size.Z then
+					cubeBoundary = true
+				end
+
+				adjustY = primary.Size.Y/2
+
+				--Offsets (no rotation)
+				if target.Name == "SnapTop" then
+
+					adjustY = primary.Size.Y/2
+
+					if GRID_SIZE == 2 then
+						adjustZ -= 1
+					end
+
+				elseif target.Name == "SnapBottom" then
+
+					adjustY = -primary.Size.Y/2
+
+					if GRID_SIZE == 2 then
+						adjustZ += 1
+					end
+
+				elseif target.Name == "SnapRight" then
+
+					adjustX = primary.Size.X/2
+
+					if GRID_SIZE == 2 then
+						adjustZ -= 1
+					end
+
+				elseif target.Name == "SnapLeft" then
+
+					adjustX = -primary.Size.X/2
+
+					if GRID_SIZE == 2 then
+						adjustZ += 1
+					end
+
+				elseif target.Name == "SnapFront" then
+
+					adjustZ = primary.Size.Z/2
+
+					if GRID_SIZE == 2 then
+						adjustZ -= 1
+					end
+
+				elseif target.Name == "SnapBack" then
+					adjustZ = -primary.Size.Z/2
+				end
+
+				--Correction for oblong objects
+				if primary.Orientation == Vector3.new(0,90,0) or primary.Orientation == Vector3.new(0,-90,0)
+					or primary.Orientation == Vector3.new(0,90,180) or primary.Orientation == Vector3.new(0,-90,180) then
+
+					if target.Name == "SnapTop" then
+						adjustY = primary.Size.Y/2
+					elseif target.Name == "SnapBottom" then
+						adjustY = -primary.Size.Y/2
+					elseif target.Name == "SnapRight" then
+						adjustX = primary.Size.Z/2
+					elseif target.Name == "SnapLeft" then
+						adjustX = -primary.Size.Z/2
+					elseif target.Name == "SnapFront" then
+						adjustZ = primary.Size.X/2
+					elseif target.Name == "SnapBack" then
+						adjustZ = -primary.Size.X/2
+					end
+
+				elseif primary.Orientation == Vector3.new(0,-90,-90) or primary.Orientation == Vector3.new(0,90,-90) then
+
+					if target.Name == "SnapTop" then
+						adjustY = primary.Size.X/2
+					elseif target.Name == "SnapBottom" then
+						adjustY = -primary.Size.X/2
+					elseif target.Name == "SnapRight" then
+						adjustX = primary.Size.Z/2
+					elseif target.Name == "SnapLeft" then
+						adjustX = -primary.Size.Z/2
+					elseif target.Name == "SnapFront" then
+						adjustZ = primary.Size.Y/2
+					elseif target.Name == "SnapBack" then
+						adjustZ = -primary.Size.Y/2
+					end
+
+				elseif primary.Orientation == Vector3.new(0,0,-90) or primary.Orientation == Vector3.new(0,-180,-90) or primary.Orientation == Vector3.new(0,180,-90) then
+
+					if target.Name == "SnapTop" then
+						adjustY = primary.Size.X/2
+					elseif target.Name == "SnapBottom" then
+						adjustY = -primary.Size.X/2
+					elseif target.Name == "SnapRight" then
+						adjustX = primary.Size.Y/2
+					elseif target.Name == "SnapLeft" then
+						adjustX = -primary.Size.Y/2
+					elseif target.Name == "SnapFront" then
+						adjustZ = primary.Size.Z/2
+					elseif target.Name == "SnapBack" then
+						adjustZ = -primary.Size.Z/2
+					end
+
+				end
+
+				local x = math.clamp(math.round(hit.X/GRID_SIZE)*GRID_SIZE + adjustX, --[[FOR CLAMP]] (baseplate.Position.X - math.round(baseplate.Size.X/2)+2), (baseplate.Position.X + math.round(baseplate.Size.X/2)-2))
+				local y = math.clamp(math.round(hit.Y/GRID_SIZE)*GRID_SIZE + adjustY, --[[FOR CLAMP]] -5, game.Workspace.GlobalValues.DefaultHeightLimit.Value)
+				local z = math.clamp(math.round(hit.Z/GRID_SIZE)*GRID_SIZE + adjustZ, --[[FOR CLAMP]] (baseplate.Position.Z - math.round(baseplate.Size.Z/2)+2), (baseplate.Position.Z + math.round(baseplate.Size.Z/2)-2))
+
+				setPivot(x,y,z,rotation.X,rotation.Y,rotation.Z)
+
+				projectionCFrame = primary.CFrame
+				
+				-- All tools here
+				if currentPart.Value == "" or currentPart.Value == "demolish" or currentPart.Value == "paint" or currentPart.Value == "clone"
+					or currentPart.Value == "eyedropper" or currentPart.Value == "resize" or currentPart.Value == "move" or currentPart == "config" then
+
+					-- Reset everything
+					if currentPart.Value == "" then
+						tips.Visible = false
+					end
+
+					projection:Destroy()
+
+					rotation = Vector3.new(0,0,0)
+					break
+
+				end
+
+			end
+
+		end
+
+	elseif currentPart.Value == "demolish" then
+
+		tips.Visible = true
+
+		tips.Mode.Text = "DEMOLITION TOOL"
+		tips.Mode.TextColor3 = Color3.new(1, 0.666667, 0)
+		tips.CurrentPart.Text = "Currently demolishing."
+		tips.Rotate.Text = "Click an object to remove"
+		tips.Tilt.Text = "it from your baseplate."
+
+		--slideSound:Play()
+		--TS:Create(buildFrame,TweenInfo.new(0.5,Enum.EasingStyle.Back),{Position = UDim2.new(ogFramePos.X.Scale,0,1.08,0)}):Play()
+		--TS:Create(openArrow,TweenInfo.new(0.3,Enum.EasingStyle.Circular),{Rotation = 180}):Play()
+
+	elseif currentPart.Value == "clone" then
+
+		tips.Visible = true
+
+		tips.Mode.Text = "CLONING TOOL"
+		tips.Mode.TextColor3 = Color3.new(1, 0.666667, 1)
+		tips.CurrentPart.Text = "Currently cloning."
+		tips.Rotate.Text = "Click on an object to clone all"
+		tips.Tilt.Text = "of the properties of that object."
+
+		--slideSound:Play()
+		--TS:Create(buildFrame,TweenInfo.new(0.5,Enum.EasingStyle.Back),{Position = UDim2.new(ogFramePos.X.Scale,0,1.08,0)}):Play()
+		--TS:Create(openArrow,TweenInfo.new(0.3,Enum.EasingStyle.Circular),{Rotation = 180}):Play()
+
+	elseif currentPart.Value == "eyedropper" then
+
+		tips.Visible = true
+
+		tips.Mode.Text = "EYEDROPPER TOOL"
+		tips.Mode.TextColor3 = Color3.new(1, 161/255, 79/255)
+		tips.CurrentPart.Text = "Currently copying color/material."
+		tips.Rotate.Text = "Click on an object to copy color/material then select an"
+		tips.Tilt.Text = "object in the build menu to temporarily transfer properties."
+
+	elseif currentPart.Value == "paint" then
+
+		tips.Visible = true
+
+		tips.Mode.Text = "PAINT TOOL"
+		tips.Mode.TextColor3 = Color3.new(85/255, 85/255, 1)
+		tips.CurrentPart.Text = "Currently painting."
+		tips.Rotate.Text = "Click an object to paint it with"
+		tips.Tilt.Text = "the selected color and material."
+
+	elseif currentPart.Value == "resize" then
+
+		tips.Visible = true
+
+		tips.Mode.Text = "RESIZE TOOL"
+		tips.Mode.TextColor3 = Color3.new(0, 170/255, 0)
+		tips.CurrentPart.Text = "Currently resizing."
+		tips.Rotate.Text = "Click on an object to"
+		tips.Tilt.Text = "start the resizing process."
+
+	elseif currentPart.Value == "move" then
+
+		tips.Visible = true
+
+		tips.Mode.Text = "MOVE TOOL"
+		tips.Mode.TextColor3 = Color3.new(85/255, 0, 1)
+		tips.CurrentPart.Text = "Currently moving."
+		tips.Rotate.Text = "Click on an object to"
+		tips.Tilt.Text = "start the moving process."
+
+	elseif currentPart.Value == "config" then
+
+		tips.Visible = true
+
+		tips.Mode.Text = "CONFIGURE TOOL"
+		tips.Mode.TextColor3 = Color3.new(77/255, 77/255, 77/255)
+		tips.CurrentPart.Text = "Currently configuring."
+		tips.Rotate.Text = "Click on an object to start"
+		tips.Tilt.Text = "the configure process."
+
+	elseif currentPart.Value == "" then
+
+		tips.Visible = false
+
+	end
+
+end)
+
+--PC
+mouse.KeyDown:Connect(function(key)
+
+	--Exit building mode
+	if key == "x" and currentPart.Value ~= "" and not controller then
+		
+		rotation = Vector3.new(0,0,0)
+
+		buildFrame.Parent.CloseButton.Visible = false
+		tips.Visible = false
+
+		--Placing cancel
+		--[[slideSound:Play()
+		TS:Create(buildFrame,TweenInfo.new(0.5,Enum.EasingStyle.Back),{Position = UDim2.new(ogFramePos.X.Scale,0,0.91,0)}):Play()
+		TS:Create(openArrow,TweenInfo.new(0.3,Enum.EasingStyle.Circular),{Rotation = 0}):Play()]]
+
+		currentPart.Value = ""
+		script.Parent.ResizingObject.Value = nil
+		
+		--Previous part
+		if prevPart.Value ~= "" then
+			currentPart.Value = prevPart.Value
+			prevPart.Value = ""
+		end
+
+		--Rotate
+		--All tools you don't want player to be able to rotate on
+	elseif key == "r" and currentPart.Value ~= "" and currentPart.Value ~= "demolish" and currentPart.Value ~= "clone" and
+		currentPart.Value ~= "eyedropper" and currentPart.Value ~= "paint" and currentPart.Value ~= "resize" and currentPart.Value ~= "move"
+		and currentPart.Value ~= "config" and not controller then
+
+		if game.ReplicatedStorage.Buildables[currentPart.Value].Rotate.Value then
+
+			if projection then
+				rotation = Vector3.new(rotation.X,rotation.Y-(math.pi/2),rotation.Z)
+			end
+
+		end
+
+		--Tilt
+		--All tools you don't want player to be able to tilt on
+	elseif key == "t" and currentPart.Value ~= "" and currentPart.Value ~= "demolish" and currentPart.Value ~= "clone" and 
+		currentPart.Value ~= "eyedropper" and currentPart.Value ~= "paint" and currentPart.Value ~= "resize" and currentPart.Value ~= "move"
+		and currentPart.Value ~= "config" and not controller then
+
+		if game.ReplicatedStorage.Buildables[currentPart.Value].Tilt.Value then
+
+			if projection then
+				rotation = Vector3.new(rotation.X,rotation.Y,rotation.Z-(math.pi/2))
+			end
+
+		end
+
+	end
+
+end)
+
+-- CONTROLLER
+UIS.InputEnded:Connect(function(key)
+
+	if key.UserInputType == Enum.UserInputType.Gamepad1 then
+
+		--Exit building mode
+		if key.KeyCode == Enum.KeyCode.ButtonB then
+
+			buildFrame.Parent.CloseButton.Visible = false
+			tips.Visible = false
+
+			--Placing cancel
+			--[[slideSound:Play()
+			TS:Create(buildFrame,TweenInfo.new(0.5,Enum.EasingStyle.Back),{Position = UDim2.new(ogFramePos.X.Scale,0,0.91,0)}):Play()
+			TS:Create(openArrow,TweenInfo.new(0.3,Enum.EasingStyle.Circular),{Rotation = 0}):Play()]]
+
+			currentPart.Value = ""
+
+			--Previous part
+			if prevPart.Value ~= "" then
+				currentPart.Value = prevPart.Value
+				prevPart.Value = ""
+			end
+
+			--Rotate
+			--All tools you don't want player to be able to rotate on
+		elseif key.KeyCode == Enum.KeyCode.ButtonX and currentPart.Value ~= "" and currentPart.Value ~= "demolish" and currentPart.Value ~= "clone" and
+			currentPart.Value ~= "eyedropper" and currentPart.Value ~= "paint" and currentPart.Value ~= "resize"  and currentPart.Value ~= "move" 
+			and currentPart.Value ~= "config" and not controller then
+
+			if game.ReplicatedStorage.Buildables[currentPart.Value].Rotate.Value then
+
+				if projection then
+					rotation = Vector3.new(rotation.X,rotation.Y-(math.pi/2),rotation.Z)
+				end
+
+			end
+
+			--Tilt
+			--All tools you don't want player to be able to tilt on
+		elseif key.KeyCode == Enum.KeyCode.ButtonY and currentPart.Value ~= "" and currentPart.Value ~= "demolish" and currentPart.Value ~= "clone"
+			and currentPart.Value ~= "eyedropper" and currentPart.Value ~= "paint" and currentPart.Value ~= "resize" and currentPart.Value ~= "move"
+			and currentPart.Value ~= "config" and not controller then
+
+			if game.ReplicatedStorage.Buildables[currentPart.Value].Tilt.Value then
+
+				if projection then
+					rotation = Vector3.new(rotation.X,rotation.Y,rotation.Z-(math.pi/2))
+				end
+
+			end
+
+		end
+
+	end
+
+end)
+
+--Place object
+mouse.Button1Down:Connect(function()
+	place()
+end)
+
+local loop = false
+
+UIS.InputBegan:Connect(function(key)
+
+	if key.UserInputType == Enum.UserInputType.MouseButton1 then
+
+		if currentPart.Value == "paint" or currentPart.Value == "demolish" then
+
+			loop = true
+
+			while wait(0.1) do
+
+				if loop then
+					place()
+				else
+					break
+				end
+
+			end
+			
+		--[[elseif buildables:FindFirstChild(currentPart.Value) then -- EXPERIMENTAL AUTOCLICKING FOR PLACE
+
+			loop = true
+
+			while wait(0.1) do
+
+				if loop then
+					place()
+				else
+					break
+				end
+
+			end]]
+
+		end
+
+	end
+
+end)
+
+UIS.InputEnded:Connect(function(key)
+
+	if key.UserInputType == Enum.UserInputType.MouseButton1 then
+
+		loop = false
+
+	end
+
+end)
