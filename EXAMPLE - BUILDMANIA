@@ -1,9 +1,12 @@
 --[[VARIABLES]]--
+
+-- Establishes variables for services
 local MPS = game:GetService("MarketplaceService")
 local TS = game:GetService("TweenService")
 local DS = game:GetService("Debris")
 local UIS = game:GetService("UserInputService")
 
+-- Establishes variables for events
 local placeObjectEvent = script.Parent.PlaceObject
 local demolishObjectEvent = script.Parent.DemolishObject
 local cloneObjectEvent = script.Parent.CloneObject
@@ -13,11 +16,13 @@ local paintEvent = script.Parent.Paint
 local colorEvent = script.Parent.Parent.ColorMaterialFrame.ColorFrame.ColorEvent
 local materialEvent = script.Parent.Parent.ColorMaterialFrame.MaterialFrame.MaterialEvent
 
+-- Establishes variables related to the player
 local plr = game.Players.LocalPlayer
 local char = plr.Character
 local mouse = plr:GetMouse()
 local camera = game.Workspace.CurrentCamera
 
+-- Misc variables
 local baseplate = game.Workspace.World:WaitForChild(plr.Name.."'s_Baseplate")
 
 local buildables = game.ReplicatedStorage.Buildables
@@ -28,17 +33,20 @@ local tips = script.Parent.Parent.BuildingTips
 local buildFrame = script.Parent.Parent.BuildFrame
 local openArrow = buildFrame.OpenArrow
 
+-- Sound variables
 local slideSound = game.ReplicatedStorage.Sounds.SFX.UI.Slide
 local errorSound = game.ReplicatedStorage.Sounds.SFX.Building.Error
 local demolishSound = game.ReplicatedStorage.Sounds.SFX.Building.Demolish
 local pop1Sound = game.ReplicatedStorage.Sounds.SFX.UI.Pop1
 local paintSound
 
+-- Value variables
 local currentPart = script.Parent.CurrentPart
 local prevPart = script.Parent.PreviousPart
 local buildBuffer = script.BuildBuffer
 local gridSize = script.Parent.GridSize
 
+-- Variable... variables?
 local ogFramePos = buildFrame.Position
 
 local GRID_SIZE = 1
@@ -58,50 +66,68 @@ local controller = false
 local steady = false
 
 --[[FUNCTIONS]]--
+
+-- Place function (does more than just place, but is triggered when the player clicks)
 function place()
-	
+
+	-- If the target is a (currentPart is an object value) descendant of the user's baseplate/plot
 	if buildables:FindFirstChild(currentPart.Value) then
 
+		-- buildBuffer is simply a way to stop people from spamming
 		if not buildBuffer.Value then
 
+			-- x = amount of parts
 			local x = 0
 
+			-- I realize I could've just done #baseplate.Parts:GetChildren(), but this is what I ended up with
+			-- Function to count how many parts in baseplate
 			for i,_ in pairs (baseplate.Parts:GetChildren()) do
 				x = i
 			end
 
+			-- If the mouse is even pointing at an object
 			if mouse.Target then
 
+				-- Projection's CFrame relative to baseplate
 				local result = baseplate.CFrame.Position - projectionCFrame.Position
 
+				-- If nothing is preventing the object from being placed then
 				if placeAble then
 
+					-- game.ReplicatedStorage.Buildables is a folder with all of the objects in it, it indexes this folder with the object value
 					local object = game.ReplicatedStorage.Buildables[currentPart.Value]
-					
+
+					-- All of the parts named... part have the same transparency, so any one of the transparencies are stored
 					local transparency = game.ReplicatedStorage.Buildables:FindFirstChild(object.Name):FindFirstChild("Part")
-					
+
+					-- The primary part is always the bounding box, so this is used for bounds (if collision is turned on)
 					local size = object.PrimaryPart.Size
-					
+
+					-- If the object is made of parts/unions all named "Glass", or "Door", etc transparency is defaulted to 0
 					if transparency then
 						transparency = transparency.Transparency
 					else
 						transparency = 0
 					end
-					
+
+					-- PrimaryPart's color/material is changed, it is also invisible
 					local color = object.PrimaryPart.Color
 					local material = object.PrimaryPart.Material
-					
+
+					-- TempMaterial is used for the eyedropper tool and clone tool, so essentially if not using the eyedropper tool/cloning then
 					if script.Parent.TempMaterial.Value ~= "" then
 						color = script.Parent.TempColor.Value
 						material = string.gsub(script.Parent.TempMaterial.Value, "Enum.Material.", "")
-						
+
+						-- Used for cloning (not yet implemented), if TempSize is not the default (0,0,0) then set the size of simple objects to the TempSize
 						if script.Parent.TempSize.Value ~= Vector3.new(0,0,0) then
 							size = script.Parent.TempSize.Value
 						end
 						
 						transparency = script.Parent.TempTransparency.Value
 					end
-					
+
+					-- Fires an event to place the object, pivoting the primary part to the CFrame. Duplicated the object from the buildables folder and changes the color/material/transparency of all neccessary parts.
 					placeObjectEvent:FireServer(projectionCFrame, currentPart.Value, rotation, color, material, transparency)
 					
 					-- Place effect
@@ -121,10 +147,12 @@ function place()
 					task.wait(0.1)
 					clone.Emitter.Enabled = false
 
+				-- If an object is unable to be place
 				else
-
+					
 					errorSound:Play()
 
+					-- Shows a convienent text letting the player know why they cannot place an object
 					if baseplate.Loading.Value == true then
 						mouseErrorText("Wait for the current task to finish to continue placing objects.", Color3.new(1, 0.219608, 0.219608), Color3.new(0, 0, 0))
 					else
@@ -140,11 +168,12 @@ function place()
 		end
 
 		--Demolish object
-
+	
 	elseif currentPart.Value == "demolish" then
 
 		local function demolish()
 			demolishSound:Play()
+			-- Event that simply removes the object from the workspace
 			demolishObjectEvent:FireServer(mouse.Target.Parent)
 		end
 
@@ -162,7 +191,9 @@ function place()
 		if mouse.Target then
 
 			if mouse.Target.Parent.Parent.Parent == baseplate then
+				-- Creates a loop, setting the currentPart.Value to the mouse.Target.Parent.Name (object) sets it back into build mode with that same object
 				currentPart.Value = mouse.Target.Parent.Name
+				-- Used for the size, not yet implemented as the scale tool was just created
 				cloneObjectEvent:FireServer(mouse.Target.Parent)
 				pop1Sound:Play()
 			end
@@ -177,6 +208,7 @@ function place()
 			local material = string.gsub(tostring(target.Parent.PrimaryPart.Material),"Enum.Material.","")
 
 			if mouse.Target.Parent.Parent.Parent == baseplate then
+				-- Updates all objects in buildables folder to have same material/color (and eventually transparency) as object
 				colorEvent:FireServer(target.Parent.PrimaryPart.Color)
 				materialEvent:FireServer(material)
 				pop1Sound:Play()
@@ -196,6 +228,7 @@ function place()
 
 			material =  Enum.Material[string.gsub(material, " ", "")]
 
+			-- Detects if all properties remain the same, if so nothing is executed in this respect
 			if obj.Parent.Parent == baseplate then
 				
 				local ogTrans = obj:FindFirstChild("Part")
@@ -234,6 +267,7 @@ function place()
 
 				if string.match(obj.Name,"2x2x2") or string.match(obj.Name,"4x4x4 Stairs") then
 
+					-- The resize script is a whole entire script by itself, but it uses Roblox handles to make it work. Same with the move script. Once the resizingObject changes the script comes into play.
 					if target.Parent.Parent.Parent == baseplate then
 						resizingObject.Value = target.Parent
 						pop1Sound:Play()
@@ -264,6 +298,7 @@ function place()
 
 		end
 
+	-- Used for manipulating an object's properties (right now only pictures can be manipulated) and looking at their properties
 	elseif currentPart.Value == "config" then
 
 		if mouse.Target then
@@ -288,10 +323,12 @@ function place()
 
 end
 
+-- A function to set CFrame of an obejct
 function setPivot(x,y,z,rotX,rotY,rotZ)
 	projection:SetPrimaryPartCFrame(CFrame.new(Vector3.new(x,y,z)) * CFrame.Angles(rotX,rotY,rotZ)) --Rotation
 end
 
+-- UI text when something goes wrong
 function mouseErrorText(text, color, strokeColor)
 
 	local mouseText = plr.PlayerScripts.LocalEventHandler.MouseText:Clone()
@@ -312,10 +349,12 @@ function mouseErrorText(text, color, strokeColor)
 end
 
 --[[MAIN SCRIPT]]--
+-- Detects if player is using a controller
 UIS.GamepadConnected:Connect(function(gamepad)
 	controller = true
 end)
 
+-- When part selected changes
 currentPart.Changed:Connect(function()
 
 	placing = true
@@ -332,10 +371,12 @@ currentPart.Changed:Connect(function()
 
 	rotation = Vector3.new(0,0,0)
 
+	-- Checks if a projection is present so multiple do not appear on the baseplate
 	if projection then
 		projection:Destroy()
 	end
 
+	-- Yeah idk
 	if baseplate:FindFirstChild("Projection") ~= nil then
 		baseplate.Projection:Destroy()
 	end
@@ -343,18 +384,21 @@ currentPart.Changed:Connect(function()
 	--Gamepass
 	local partLimit
 
+	-- Gamepass to increase the part limit
 	if MPS:UserOwnsGamePassAsync(plr.UserId, 714408148) then
 		partLimit = game.Workspace.GlobalValues["2xPartLimit"].Value
 	else
 		partLimit = game.Workspace.GlobalValues.DefaultPartLimit.Value
 	end
 
+	-- Checks for presence of object in buildables folder
 	if buildables:FindFirstChild(currentPart.Value) then
 
 		startBuildEvent:FireServer()
 
 		tips.Visible = true
 
+		-- Changing of UI, does this for every tool
 		tips.CurrentPart.Text = "Currently placing "..currentPart.Value.."."
 		tips.Mode.Text = "BUILD TOOL"
 		tips.Rotate.Text = "Press R to Rotate. [IF ABLE]"
@@ -372,11 +416,13 @@ currentPart.Changed:Connect(function()
 
 		projection.BoundingBox.CanCollide = false
 
+		-- So the mouse does not get tangled up with the projection
 		mouse.TargetFilter = projection
 
 		--Projection
 		while wait() do
 
+			-- Self explanatory
 			local GRID_SIZE = gridSize.Value
 
 			local primary = projection.PrimaryPart
@@ -384,6 +430,7 @@ currentPart.Changed:Connect(function()
 			local hit = mouse.Hit
 			local parts = 0
 
+			-- Again, could've used what was mentioned before
 			for i,_ in pairs (baseplate.Parts:GetChildren()) do
 				parts = i
 			end
@@ -404,6 +451,7 @@ currentPart.Changed:Connect(function()
 
 							if part.ClassName == "UnionOperation" or part.ClassName == "Part" or part.ClassName == "Seat" then
 
+								-- Sets the transparency etc with exceptions
 								if part.Name ~= "BoundingBox" and part.Name ~= "Direction" then
 									part.Transparency = 0.6
 									part.BrickColor = BrickColor.new("Bright green")
@@ -441,7 +489,7 @@ currentPart.Changed:Connect(function()
 			local adjustX, adjustY, adjustZ = 0, 0, 0
 
 			local normalRot
-
+			
 			if target and primary then
 
 				normalRot = target.Rotation - primary.Rotation
@@ -551,6 +599,7 @@ currentPart.Changed:Connect(function()
 
 				end
 
+				-- Final positions
 				local x = math.clamp(math.round(hit.X/GRID_SIZE)*GRID_SIZE + adjustX, --[[FOR CLAMP]] (baseplate.Position.X - math.round(baseplate.Size.X/2)+2), (baseplate.Position.X + math.round(baseplate.Size.X/2)-2))
 				local y = math.clamp(math.round(hit.Y/GRID_SIZE)*GRID_SIZE + adjustY, --[[FOR CLAMP]] -5, game.Workspace.GlobalValues.DefaultHeightLimit.Value)
 				local z = math.clamp(math.round(hit.Z/GRID_SIZE)*GRID_SIZE + adjustZ, --[[FOR CLAMP]] (baseplate.Position.Z - math.round(baseplate.Size.Z/2)+2), (baseplate.Position.Z + math.round(baseplate.Size.Z/2)-2))
@@ -787,6 +836,7 @@ end)
 
 local loop = false
 
+-- Loops for placing/painting/demolishing
 UIS.InputBegan:Connect(function(key)
 
 	if key.UserInputType == Enum.UserInputType.MouseButton1 then
